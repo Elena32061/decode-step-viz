@@ -1,0 +1,1384 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>一次 decode step：8 卡 GB200 上的 81.8446 ms</title>
+<style>
+  :root {
+    --bg:        #07090d;
+    --bg-panel:  rgba(14, 18, 24, 0.82);
+    --line:      rgba(255, 255, 255, 0.10);
+    --line-soft: rgba(255, 255, 255, 0.055);
+    --fg:        #d7dde6;
+    --fg-dim:    #8d97a5;
+    --fg-faint:  #5e6775;
+    --accent:    #e8a33d;
+    --mono: ui-monospace, "SF Mono", "JetBrains Mono", Menlo, Consolas, monospace;
+    --sans: -apple-system, BlinkMacSystemFont, "PingFang SC", "Noto Sans SC",
+            "Hiragino Sans GB", "Microsoft YaHei", system-ui, sans-serif;
+  }
+
+  * { box-sizing: border-box; }
+
+  html, body {
+    margin: 0; padding: 0; height: 100%;
+    background: var(--bg); color: var(--fg);
+    font-family: var(--sans);
+    font-size: 13px; line-height: 1.55;
+    overflow: hidden;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  #scene  { position: fixed; inset: 0; z-index: 0; }
+  #labels { position: fixed; inset: 0; z-index: 1; pointer-events: none; overflow: hidden; }
+
+  .label {
+    font-family: var(--mono); font-size: 10.5px; letter-spacing: .04em;
+    color: var(--fg-dim); white-space: nowrap;
+    text-shadow: 0 0 8px rgba(0,0,0,.95), 0 0 2px rgba(0,0,0,1);
+    user-select: none;
+  }
+  .label.strong { color: var(--fg); font-size: 11.5px; }
+  .label.node   { color: var(--fg-faint); font-size: 10px; letter-spacing: .18em; }
+
+  /* ---------- panels ---------- */
+  .panel {
+    position: fixed; z-index: 3;
+    background: var(--bg-panel);
+    -webkit-backdrop-filter: blur(14px); backdrop-filter: blur(14px);
+    border: 1px solid var(--line);
+    border-radius: 3px;
+  }
+
+  #header {
+    top: 16px; left: 16px; max-width: 520px; padding: 13px 16px 12px;
+  }
+  #header h1 {
+    margin: 0 0 3px; font-size: 15px; font-weight: 600; letter-spacing: .01em;
+  }
+  #header .sub { color: var(--fg-dim); font-size: 11.5px; font-family: var(--mono); letter-spacing: .02em; }
+  #header .disclaimer {
+    margin-top: 9px; padding-top: 9px; border-top: 1px solid var(--line-soft);
+    color: var(--fg-faint); font-size: 10.5px; line-height: 1.5;
+  }
+
+  #hud {
+    top: 140px; left: 16px; width: 330px; padding: 14px 16px 15px;
+  }
+  #gpuPanel {
+    top: 140px; right: 16px; width: 348px; padding: 14px 16px 16px;
+    max-height: calc(100vh - 400px); overflow-y: auto;
+  }
+  #gpuPanel[hidden] { display: none; }
+  #gpuPanel::-webkit-scrollbar { width: 6px; }
+  #gpuPanel::-webkit-scrollbar-thumb { background: rgba(255,255,255,.12); border-radius: 3px; }
+
+  .sect-title {
+    font-family: var(--mono); font-size: 9.5px; letter-spacing: .20em;
+    color: var(--fg-faint); text-transform: uppercase; margin: 0 0 9px;
+  }
+  .sect-title + .sect-title, .block + .block { margin-top: 0; }
+  .block { margin-top: 15px; padding-top: 14px; border-top: 1px solid var(--line-soft); }
+  .block:first-child { margin-top: 0; padding-top: 0; border-top: 0; }
+
+  .kv { display: flex; justify-content: space-between; align-items: baseline; gap: 10px; margin: 3px 0; }
+  .kv .k { color: var(--fg-dim); font-size: 11.5px; }
+  .kv .v { font-family: var(--mono); font-size: 12px; text-align: right; }
+  .kv .v .u { color: var(--fg-faint); font-size: 10px; margin-left: 2px; }
+
+  /* provenance markers */
+  .pv { font-size: 8.5px; margin-left: 4px; vertical-align: .35em; opacity: .85; }
+  .pv-measured     { color: #9fd8a8; }
+  .pv-derived      { color: #d8c89f; }
+  .pv-illustrative { color: #9fb0d8; }
+
+  #clock {
+    font-family: var(--mono); font-size: 25px; font-weight: 300;
+    letter-spacing: -.01em; line-height: 1.15;
+  }
+  #clock .tot { color: var(--fg-faint); font-size: 13px; font-weight: 400; }
+
+  #layerLine { margin-top: 7px; display: flex; align-items: center; gap: 7px; flex-wrap: wrap; }
+  #layerBig { font-family: var(--mono); font-size: 16px; }
+  .badge {
+    font-family: var(--mono); font-size: 9px; letter-spacing: .09em;
+    padding: 2px 6px; border-radius: 2px; border: 1px solid currentColor;
+    opacity: .9; white-space: nowrap;
+  }
+
+  #moduleLine { display: flex; align-items: center; gap: 8px; margin-bottom: 7px; }
+  .chip { width: 9px; height: 9px; border-radius: 1px; flex: none; }
+  #moduleName { font-size: 13.5px; font-weight: 600; }
+  #modulePct { font-family: var(--mono); font-size: 11px; color: var(--fg-dim); margin-left: auto; }
+  #explain { color: var(--fg-dim); font-size: 11.5px; line-height: 1.6; }
+
+  #annots { margin-top: 11px; display: flex; flex-direction: column; gap: 5px; }
+  .annot {
+    font-size: 11px; line-height: 1.45; padding: 6px 9px; border-radius: 2px;
+    border-left: 2px solid currentColor;
+    background: rgba(255,255,255,.035);
+  }
+  .annot span { color: var(--fg); }
+
+  /* ---------- bars ---------- */
+  .stack { display: flex; height: 13px; border-radius: 2px; overflow: hidden; margin: 7px 0 6px; }
+  .stack > div { height: 100%; }
+  .stack-key { display: flex; gap: 12px; flex-wrap: wrap; font-size: 10.5px; color: var(--fg-dim); }
+  .stack-key i { display: inline-block; width: 7px; height: 7px; border-radius: 1px; margin-right: 4px; }
+  .stack-key b { font-family: var(--mono); font-weight: 400; color: var(--fg); }
+
+  .loadrow { display: flex; align-items: center; gap: 7px; margin: 3px 0; }
+  .loadrow .nm { font-family: var(--mono); font-size: 10px; color: var(--fg-faint); width: 34px; flex: none; }
+  .loadrow .tr { flex: 1; height: 9px; background: rgba(255,255,255,.05); border-radius: 1px; overflow: hidden; }
+  .loadrow .tr > div { height: 100%; background: var(--accent); opacity: .5; }
+  .loadrow.sel .tr > div { opacity: 1; }
+  .loadrow.sel .nm { color: var(--fg); }
+  .loadrow .nv { font-family: var(--mono); font-size: 10px; color: var(--fg-dim); width: 34px; text-align: right; flex: none; }
+
+  #expertGrid { display: grid; grid-template-columns: repeat(12, 1fr); gap: 2px; margin-top: 7px; }
+  #expertGrid div { height: 13px; border-radius: 1px; background: var(--accent); }
+
+  /* ---------- footer ---------- */
+  #footer {
+    left: 16px; right: 16px; bottom: 16px; padding: 11px 14px 12px; z-index: 3;
+  }
+  #gantt { display: block; width: 100%; height: 74px; cursor: crosshair; }
+
+  #scrub {
+    -webkit-appearance: none; appearance: none; width: 100%; height: 14px;
+    background: transparent; margin: 2px 0 9px; cursor: pointer; display: block;
+  }
+  #scrub::-webkit-slider-runnable-track { height: 2px; background: rgba(255,255,255,.14); border-radius: 1px; }
+  #scrub::-webkit-slider-thumb {
+    -webkit-appearance: none; width: 11px; height: 11px; border-radius: 50%;
+    background: var(--fg); margin-top: -4.5px; border: 0;
+  }
+  #scrub::-moz-range-track { height: 2px; background: rgba(255,255,255,.14); }
+  #scrub::-moz-range-thumb { width: 11px; height: 11px; border-radius: 50%; background: var(--fg); border: 0; }
+
+  #controls { display: flex; align-items: center; gap: 9px; flex-wrap: wrap; }
+
+  button.ctl {
+    font-family: var(--mono); font-size: 11px; color: var(--fg-dim);
+    background: rgba(255,255,255,.045); border: 1px solid var(--line);
+    border-radius: 2px; padding: 5px 10px; cursor: pointer; letter-spacing: .03em;
+    transition: color .12s, background .12s, border-color .12s;
+  }
+  button.ctl:hover { color: var(--fg); background: rgba(255,255,255,.09); border-color: rgba(255,255,255,.2); }
+  button.ctl.on { color: var(--bg); background: var(--fg); border-color: var(--fg); }
+  button.ctl.wide { min-width: 62px; }
+
+  .sep { width: 1px; height: 18px; background: var(--line); margin: 0 3px; }
+  .ctl-label { font-family: var(--mono); font-size: 9.5px; letter-spacing: .16em; color: var(--fg-faint); }
+
+  #speed { width: 128px; -webkit-appearance: none; appearance: none; background: transparent; height: 14px; cursor: pointer; }
+  #speed::-webkit-slider-runnable-track { height: 2px; background: rgba(255,255,255,.14); border-radius: 1px; }
+  #speed::-webkit-slider-thumb { -webkit-appearance: none; width: 10px; height: 10px; border-radius: 50%; background: var(--accent); margin-top: -4px; border: 0; }
+  #speed::-moz-range-track { height: 2px; background: rgba(255,255,255,.14); }
+  #speed::-moz-range-thumb { width: 10px; height: 10px; border-radius: 50%; background: var(--accent); border: 0; }
+  #speedVal { font-family: var(--mono); font-size: 11px; color: var(--accent); min-width: 58px; }
+
+  #legend { display: flex; gap: 11px; flex-wrap: wrap; margin-left: auto; align-items: center; }
+  #legend .li { display: flex; align-items: center; gap: 5px; font-size: 10.5px; color: var(--fg-dim); white-space: nowrap; }
+  #legend .li i { width: 8px; height: 8px; border-radius: 1px; flex: none; }
+
+  #provKey {
+    margin-top: 9px; padding-top: 9px; border-top: 1px solid var(--line-soft);
+    display: flex; gap: 16px; flex-wrap: wrap; font-size: 10px; color: var(--fg-faint);
+  }
+
+  /* ---------- fallback ---------- */
+  #fallback {
+    position: fixed; inset: 0; z-index: 99; display: none;
+    align-items: center; justify-content: center; padding: 32px; background: var(--bg);
+  }
+  #fallback.show { display: flex; }
+  #fallback .inner { max-width: 520px; }
+  #fallback h2 { font-size: 16px; margin: 0 0 10px; font-weight: 600; }
+  #fallback p { color: var(--fg-dim); font-size: 12.5px; margin: 0 0 8px; }
+  #fallback code { font-family: var(--mono); font-size: 11.5px; color: var(--accent); }
+
+  @media (max-width: 1180px) {
+    #gpuPanel { top: auto; bottom: 230px; max-height: 300px; }
+    #hud { width: 290px; }
+  }
+</style>
+</head>
+<body>
+
+<div id="scene"></div>
+<div id="labels"></div>
+
+<div id="header" class="panel">
+  <h1 id="title"></h1>
+  <div class="sub" id="subtitle"></div>
+  <div class="disclaimer" id="disclaimer"></div>
+</div>
+
+<div id="hud" class="panel">
+  <div class="block">
+    <div class="sect-title">当前时刻</div>
+    <div id="clock"></div>
+    <div id="layerLine"></div>
+  </div>
+  <div class="block">
+    <div class="sect-title">正在执行</div>
+    <div id="moduleLine">
+      <span class="chip" id="moduleChip"></span>
+      <span id="moduleName"></span>
+      <span id="modulePct"></span>
+    </div>
+    <div id="explain"></div>
+    <div id="annots"></div>
+  </div>
+</div>
+
+<div id="gpuPanel" class="panel" hidden></div>
+
+<div id="footer" class="panel">
+  <canvas id="gantt"></canvas>
+  <input id="scrub" type="range" min="0" max="1" step="0.00002" value="0" aria-label="时间轴" />
+  <div id="controls">
+    <button class="ctl" id="btnPrev" title="上一层（←）">⏮ 层</button>
+    <button class="ctl wide on" id="btnPlay" title="播放 / 暂停（空格）">⏸ 暂停</button>
+    <button class="ctl" id="btnNext" title="下一层（→）">层 ⏭</button>
+    <button class="ctl" id="btnReset" title="回到起点">↺</button>
+    <div class="sep"></div>
+    <span class="ctl-label">速度</span>
+    <input id="speed" type="range" min="0" max="1" step="0.001" value="0" aria-label="播放速度" />
+    <span id="speedVal"></span>
+    <div class="sep"></div>
+    <span class="ctl-label">视角</span>
+    <button class="ctl" data-cam="system"></button>
+    <button class="ctl" data-cam="gpu"></button>
+    <button class="ctl" data-cam="grace"></button>
+    <div id="legend"></div>
+  </div>
+  <div id="provKey"></div>
+</div>
+
+<div id="fallback">
+  <div class="inner">
+    <h2 id="fbTitle">无法启动可视化</h2>
+    <p id="fbBody"></p>
+    <p id="fbHint"></p>
+  </div>
+</div>
+
+<!-- data.js 是传统脚本而非 ES module：ES module 在 file:// 下会被 CORS 拦住，
+     而这个页面需要双击打开也能用。它把唯一的数据对象挂到
+     globalThis.DECODE_STEP_DATA，下面的 module 脚本从那里读。 -->
+<script src="./data.js"></script>
+
+<script>
+  // 启动看门狗：若 three.js 没能从 CDN 加载（离线、被墙、CDN 故障），
+  // module 脚本不会执行，这里给出明确提示而不是留一个黑屏。
+  window.__VIZ_BOOTED = false;
+  (function () {
+    var fb = document.getElementById('fallback');
+    function fail(title, body, hint) {
+      document.getElementById('fbTitle').textContent = title;
+      document.getElementById('fbBody').textContent = body;
+      document.getElementById('fbHint').textContent = hint || '';
+      fb.classList.add('show');
+    }
+    window.__vizFail = fail;
+
+    if (!window.DECODE_STEP_DATA) {
+      fail('数据文件没有加载', 'data.js 未能加载，页面上所有数字都来自它。',
+           '请确认 data.js 与 index.html 在同一目录下。');
+      return;
+    }
+    var c = document.createElement('canvas');
+    var ok = false;
+    try { ok = !!(c.getContext('webgl2')); } catch (e) { ok = false; }
+    if (!ok) {
+      fail('需要 WebGL2',
+           '当前浏览器或显卡驱动没有提供 WebGL2，这个可视化无法渲染。',
+           '请改用较新版本的 Chrome / Edge / Firefox / Safari，并确认没有关闭硬件加速。');
+      return;
+    }
+    setTimeout(function () {
+      if (!window.__VIZ_BOOTED) {
+        fail('three.js 没有加载成功',
+             '页面通过 CDN 加载 three.js r160。看起来这次请求没有成功。',
+             '这个页面需要联网才能取到 three.js。离线使用时请把 three.js 下载到本地，并改写 index.html 里的 importmap。');
+      }
+    }, 8000);
+  })();
+</script>
+
+<script type="importmap">
+{
+  "imports": {
+    "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
+    "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"
+  }
+}
+</script>
+
+<script type="module">
+import * as THREE from 'three';
+import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+import { CSS2DRenderer, CSS2DObject } from 'three/addons/renderers/CSS2DRenderer.js';
+
+window.__VIZ_BOOTED = true;
+
+const D = globalThis.DECODE_STEP_DATA;
+const C = D.copy;
+const ILL = D.illustrative;
+const SCH = D.schedule;
+const TOTAL = D.step.totalMs.v;
+const NGPU = D.system.gpuCount.v;
+const GEO = ILL.geometry;
+
+// ===========================================================================
+// 小工具
+// ===========================================================================
+const $ = (s) => document.querySelector(s);
+const clamp = (x, a, b) => x < a ? a : (x > b ? b : x);
+const lerp = (a, b, u) => a + (b - a) * u;
+
+function prng(seed) {
+  let a = seed >>> 0;
+  return function () {
+    a |= 0; a = (a + 0x6D2B79F5) | 0;
+    let t = Math.imul(a ^ (a >>> 15), 1 | a);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+// 出处标记：屏幕上每个数字后面跟一个小符号，说明它是实测、推导还是示意
+function pv(tag) {
+  const p = D.provenance[tag];
+  return `<span class="pv pv-${tag}" title="${p.zh}">${p.marker}</span>`;
+}
+function num(x, digits = 0) {
+  return Number(x).toLocaleString('en-US', {
+    minimumFractionDigits: digits, maximumFractionDigits: digits
+  });
+}
+function row(k, v, unit, tag) {
+  return `<div class="kv"><span class="k">${k}</span>` +
+         `<span class="v">${v}${unit ? `<span class="u">${unit}</span>` : ''}${tag ? pv(tag) : ''}</span></div>`;
+}
+
+// ===========================================================================
+// 静态文案
+// ===========================================================================
+$('#title').textContent = C.title;
+$('#subtitle').textContent = C.subtitle;
+$('#disclaimer').textContent = C.disclaimer;
+document.querySelectorAll('[data-cam]').forEach(b => {
+  b.textContent = C.cameraPresets[b.dataset.cam];
+});
+$('#legend').innerHTML = D.modules.map(m =>
+  `<span class="li"><i style="background:${m.color}"></i>${m.zh}</span>`).join('');
+$('#provKey').innerHTML = Object.keys(D.provenance).map(k => {
+  const p = D.provenance[k];
+  const desc = { measured: '来自 profiler，口径见上方说明',
+                 derived: '完全由实测值按 data.js 中写明的规则算出',
+                 illustrative: '可视化选择，不是测量值' }[k];
+  return `<span><span class="pv pv-${k}" style="vertical-align:0">${p.marker}</span> ${p.zh} — ${desc}</span>`;
+}).join('');
+
+// ===========================================================================
+// 场景
+// ===========================================================================
+const host = $('#scene');
+const renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'high-performance' });
+renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+renderer.setSize(window.innerWidth, window.innerHeight);
+renderer.setClearColor(0x07090d, 1);
+host.appendChild(renderer.domElement);
+
+const labelRenderer = new CSS2DRenderer({ element: $('#labels') });
+labelRenderer.setSize(window.innerWidth, window.innerHeight);
+
+const scene = new THREE.Scene();
+scene.fog = new THREE.Fog(0x07090d, 34, 72);
+
+const camera = new THREE.PerspectiveCamera(42, window.innerWidth / window.innerHeight, 0.1, 400);
+camera.position.set(0, 13.5, 27);
+
+const controls = new OrbitControls(camera, renderer.domElement);
+controls.enableDamping = true;
+controls.dampingFactor = 0.07;
+controls.target.set(0, -1.2, 0);
+controls.minDistance = 5;
+controls.maxDistance = 80;
+controls.maxPolarAngle = Math.PI * 0.92;
+
+scene.add(new THREE.AmbientLight(0x4a5568, 1.5));
+const key = new THREE.DirectionalLight(0xc8d4e4, 1.1); key.position.set(9, 16, 11); scene.add(key);
+const fill = new THREE.DirectionalLight(0x3a4a66, 0.7); fill.position.set(-11, 5, -9); scene.add(fill);
+
+// three r160 里，InstancedMesh 的 instanceColor 只在顶点着色器里乘进 vColor，
+// 而片元着色器只在 USE_COLOR（即 material.vertexColors）时才用 vColor。
+// 所以光设 instanceColor 是不生效的，实例会按材质本色渲染。
+// 这里补上：打开 vertexColors，并给几何体一个全白的 color 属性
+//（没有这个属性时未绑定的 attribute 取 (0,0,0)，实例会全黑）。
+function instancedColorGeometry(geo) {
+  const n = geo.attributes.position.count;
+  geo.setAttribute('color', new THREE.BufferAttribute(new Float32Array(n * 3).fill(1), 3));
+  return geo;
+}
+
+function addLabel(obj, text, cls, y) {
+  const el = document.createElement('div');
+  el.className = 'label ' + (cls || '');
+  el.textContent = text;
+  const o = new CSS2DObject(el);
+  o.position.set(0, y || 0, 0);
+  obj.add(o);
+  return o;
+}
+
+// ---------------------------------------------------------------------------
+// GPU 方块
+// ---------------------------------------------------------------------------
+const [GW, GH, GD] = GEO.gpuSize.v;
+const SPX = GEO.gpuSpacingX.v, SPZ = GEO.nodeSpacingZ.v;
+const FAB_Y = GEO.fabricY.v, GRACE_Y = GEO.graceY.v;
+
+// 显存画成一根窄的堆叠条，而不是铺满整个盒子。铺满时从上方看过去，
+// 最上面那层的顶面会占掉一大片画面，19.6 GB 的 index key 看起来比
+// 98.5 GB 的 KV 还大——比例就读错了。做成条状之后高度才是唯一的视觉量。
+const MEM_H = 2.15, MEM_W = GW * 0.20, MEM_D = GD * 0.30, MEM_X = -GW * 0.28;
+const CORE_Y = GH / 2 - 0.05;
+const EXPERT_COLS = 12, EXPERT_ROWS = D.moe.expertsPerGpu.v / EXPERT_COLS; // 48 = 12 × 4
+
+const gpus = [];
+const pickTargets = [];
+const moeColor = new THREE.Color(D.modulesById.moe.color);
+
+for (let g = 0; g < NGPU; g++) {
+  const node = Math.floor(g / D.system.gpusPerNode.v);
+  const i = g % D.system.gpusPerNode.v;
+  const px = (i - (D.system.gpusPerNode.v - 1) / 2) * SPX;
+  const pz = (node - 0.5) * SPZ;
+
+  const grp = new THREE.Group();
+  grp.position.set(px, 0, pz);
+  scene.add(grp);
+
+  // 外壳
+  const shell = new THREE.Mesh(
+    new THREE.BoxGeometry(GW, GH, GD),
+    new THREE.MeshStandardMaterial({
+      color: 0x111820, roughness: 0.62, metalness: 0.22,
+      transparent: true, opacity: 0.30, depthWrite: false
+    })
+  );
+  shell.userData.gpu = g;
+  grp.add(shell);
+  pickTargets.push(shell);
+
+  const edgeMat = new THREE.LineBasicMaterial({ color: 0x3d4c5e, transparent: true, opacity: 0.85 });
+  grp.add(new THREE.LineSegments(new THREE.EdgesGeometry(new THREE.BoxGeometry(GW, GH, GD)), edgeMat));
+
+  // 显存分层
+  let y = -MEM_H / 2;
+  const memMeshes = {};
+  for (const seg of D.memorySplit) {
+    const h = MEM_H * seg.gb / D.system.hbmPerGpuGB.v;
+    const isFree = seg.id === 'free';
+    const m = new THREE.Mesh(
+      new THREE.BoxGeometry(MEM_W, h * 0.93, MEM_D),
+      new THREE.MeshStandardMaterial({
+        color: new THREE.Color(seg.color),
+        roughness: 0.55, metalness: 0.1,
+        transparent: true, opacity: isFree ? 0.16 : 0.92,
+        emissive: new THREE.Color(seg.color),
+        emissiveIntensity: isFree ? 0.0 : 0.18
+      })
+    );
+    m.position.set(MEM_X, y + h / 2, 0);
+    grp.add(m);
+    // 「其余」那段只勾边，强调它是没用掉的容量而不是一块数据
+    if (isFree) {
+      const o = new THREE.LineSegments(
+        new THREE.EdgesGeometry(new THREE.BoxGeometry(MEM_W, h * 0.93, MEM_D)),
+        new THREE.LineBasicMaterial({ color: 0x5a6472, transparent: true, opacity: 0.55 })
+      );
+      o.position.copy(m.position);
+      grp.add(o);
+    }
+    memMeshes[seg.id] = { mesh: m, yCenter: m.position.y, h };
+    y += h;
+  }
+
+  // 顶面计算板：随当前模块变色
+  const core = new THREE.Mesh(
+    new THREE.BoxGeometry(GW * 0.90, 0.11, GD * 0.82),
+    new THREE.MeshStandardMaterial({
+      color: 0x1a222c, roughness: 0.4, metalness: 0.3,
+      emissive: new THREE.Color(0x000000), emissiveIntensity: 1.0
+    })
+  );
+  core.position.y = CORE_Y;
+  grp.add(core);
+
+  // 节点名并进每排第一张卡的标签：单独立一个节点标注会压在机箱上
+  addLabel(grp, i === 0 ? `GPU ${g}　· 节点 ${node === 0 ? 'A' : 'B'}` : `GPU ${g}`,
+           'strong', node === 0 ? GH / 2 + 0.95 : -(GH / 2 + 0.55));
+
+  gpus.push({
+    index: g, node, group: grp, shell, core, edgeMat, mem: memMeshes,
+    pos: new THREE.Vector3(px, 0, pz),
+    corePos: new THREE.Vector3(px, CORE_Y, pz),
+    indexBandPos: new THREE.Vector3(px + MEM_X, memMeshes.indexkey.yCenter, pz),
+    load: ILL.expertLoadPerGpu.v[g]
+  });
+}
+
+// ---------------------------------------------------------------------------
+// 384 个专家（8 卡 × 48），一个 InstancedMesh
+// ---------------------------------------------------------------------------
+const totalExperts = NGPU * D.moe.expertsPerGpu.v;
+// 用不受光照影响的材质：这样每个专家的亮度就只由 instanceColor 决定，
+// 负载差异不会被光照冲掉。
+const expertMesh = new THREE.InstancedMesh(
+  instancedColorGeometry(new THREE.BoxGeometry(0.185, 0.11, 0.185)),
+  new THREE.MeshBasicMaterial({ vertexColors: true }),
+  totalExperts
+);
+expertMesh.instanceColor = new THREE.InstancedBufferAttribute(new Float32Array(totalExperts * 3), 3);
+scene.add(expertMesh);
+
+const expertHome = [];
+{
+  const dummy = new THREE.Object3D();
+  for (let g = 0; g < NGPU; g++) {
+    for (let e = 0; e < D.moe.expertsPerGpu.v; e++) {
+      const cx = e % EXPERT_COLS, cz = Math.floor(e / EXPERT_COLS);
+      const x = gpus[g].pos.x + (cx - (EXPERT_COLS - 1) / 2) * (GW * 0.90 / EXPERT_COLS);
+      const z = gpus[g].pos.z + (cz - (EXPERT_ROWS - 1) / 2) * (GD * 0.70 / EXPERT_ROWS);
+      const p = new THREE.Vector3(x, CORE_Y + 0.10, z);
+      expertHome.push(p);
+      dummy.position.copy(p); dummy.updateMatrix();
+      expertMesh.setMatrixAt(g * D.moe.expertsPerGpu.v + e, dummy.matrix);
+    }
+  }
+  expertMesh.instanceMatrix.needsUpdate = true;
+}
+
+// 每个专家的相对强度（示意分布，归一到各卡自己的最大值）
+const expertIntensity = new Float32Array(totalExperts);
+{
+  const rows = ILL.perExpertRows.v;
+  for (let g = 0; g < NGPU; g++) {
+    const r = rows[g], mx = Math.max.apply(null, r);
+    for (let e = 0; e < r.length; e++) expertIntensity[g * r.length + e] = r[e] / mx;
+  }
+}
+
+// ---------------------------------------------------------------------------
+// NVLink fabric（画成一张网面，不是一根根连线）
+// ---------------------------------------------------------------------------
+function makeGrid(w, d, nx, nz, color, opacity) {
+  const pts = [];
+  for (let i = 0; i <= nx; i++) {
+    const x = -w / 2 + w * i / nx;
+    pts.push(x, 0, -d / 2, x, 0, d / 2);
+  }
+  for (let j = 0; j <= nz; j++) {
+    const z = -d / 2 + d * j / nz;
+    pts.push(-w / 2, 0, z, w / 2, 0, z);
+  }
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute('position', new THREE.Float32BufferAttribute(pts, 3));
+  return new THREE.LineSegments(geo, new THREE.LineBasicMaterial({
+    color, transparent: true, opacity, blending: THREE.AdditiveBlending, depthWrite: false
+  }));
+}
+
+const fabric = makeGrid(SPX * 4.6, SPZ * 1.75, 26, 12, 0x2f4a66, 0.30);
+fabric.position.y = FAB_Y;
+scene.add(fabric);
+{
+  const holder = new THREE.Object3D();
+  holder.position.set(-(SPX * 2.3) + 1.2, FAB_Y + 0.35, 0);
+  scene.add(holder);
+  addLabel(holder, 'NVLINK FABRIC', 'node', 0);
+}
+
+// ---------------------------------------------------------------------------
+// Grace 主机内存
+// ---------------------------------------------------------------------------
+const graceGrp = new THREE.Group();
+graceGrp.position.y = GRACE_Y;
+scene.add(graceGrp);
+
+// Grace 这块压得比 GPU 阵列小一圈、也更暗：它是背景里的「表住在这儿」，
+// 不该抢掉画面的下半部分。
+const graceW = SPX * 3.9, graceD = SPZ * 1.25, graceH = 0.85;
+graceGrp.add(new THREE.Mesh(
+  new THREE.BoxGeometry(graceW, graceH, graceD),
+  new THREE.MeshStandardMaterial({
+    color: 0x17121a, roughness: 0.8, metalness: 0.12,
+    transparent: true, opacity: 0.42,
+    emissive: new THREE.Color(D.modulesById.engram.color),
+    emissiveIntensity: 0.03
+  })
+));
+graceGrp.add(new THREE.LineSegments(
+  new THREE.EdgesGeometry(new THREE.BoxGeometry(graceW, graceH, graceD)),
+  new THREE.LineBasicMaterial({ color: 0x7a5650, transparent: true, opacity: 0.7 })
+));
+addLabel(graceGrp, `Grace 主机内存 · Engram 表（分 ${D.system.gpuCount.v} 份）`, 'strong', -graceH / 2 - 0.75);
+
+// NVLink-C2C 链路
+const c2cPts = [];
+const graceExit = [];
+for (const gp of gpus) {
+  const a = new THREE.Vector3(gp.pos.x, -GH / 2, gp.pos.z);
+  const b = new THREE.Vector3(gp.pos.x * 0.86, GRACE_Y + graceH / 2, gp.pos.z * 0.86);
+  graceExit.push(b);
+  c2cPts.push(a.x, a.y, a.z, b.x, b.y, b.z);
+}
+const c2cGeo = new THREE.BufferGeometry();
+c2cGeo.setAttribute('position', new THREE.Float32BufferAttribute(c2cPts, 3));
+const c2cMat = new THREE.LineBasicMaterial({
+  color: new THREE.Color(D.modulesById.engram.color),
+  transparent: true, opacity: 0.12, blending: THREE.AdditiveBlending, depthWrite: false
+});
+scene.add(new THREE.LineSegments(c2cGeo, c2cMat));
+{
+  const holder = new THREE.Object3D();
+  holder.position.set(graceW / 2 - 2.2, (GRACE_Y + graceH / 2 - GH / 2) / 2, SPZ * 0.52);
+  scene.add(holder);
+  addLabel(holder, 'NVLink-C2C', 'node', 0);
+}
+
+// ===========================================================================
+// 粒子系统
+// ===========================================================================
+const CAP = ILL.particleCapacity.v;
+const pMesh = new THREE.InstancedMesh(
+  instancedColorGeometry(new THREE.OctahedronGeometry(0.072, 0)),
+  new THREE.MeshBasicMaterial({ vertexColors: true, transparent: true, opacity: 0.95,
+                                blending: THREE.AdditiveBlending, depthWrite: false }),
+  CAP
+);
+pMesh.instanceColor = new THREE.InstancedBufferAttribute(new Float32Array(CAP * 3), 3);
+pMesh.frustumCulled = false;
+scene.add(pMesh);
+
+const _d = new THREE.Object3D();
+const _c = new THREE.Color();
+const _a = new THREE.Vector3(), _b = new THREE.Vector3(), _k = new THREE.Vector3(), _p = new THREE.Vector3();
+
+let pn = 0;
+function put(x, y, z, s, col) {
+  if (pn >= CAP) return;
+  _d.position.set(x, y, z);
+  _d.scale.setScalar(s);
+  _d.updateMatrix();
+  pMesh.setMatrixAt(pn, _d.matrix);
+  pMesh.setColorAt(pn, col);
+  pn++;
+}
+function bez(a, k, b, u, out) {
+  const w = 1 - u;
+  out.set(w * w * a.x + 2 * w * u * k.x + u * u * b.x,
+          w * w * a.y + 2 * w * u * k.y + u * u * b.y,
+          w * w * a.z + 2 * w * u * k.z + u * u * b.z);
+  return out;
+}
+
+// --- MoE all-to-all 的固定路由表 -------------------------------------------
+// 源卡按示意负载系数加权抽样（负载重的卡发出更多），目标卡均匀抽样。
+// 一半粒子画 dispatch，一半画 combine。整张表只在初始化时生成一次，
+// 因此拖动时间轴时画面完全可复现。
+const moeTable = (() => {
+  const rnd = prng(1337);
+  const P = ILL.moeParticleCount.v;
+  const loads = ILL.expertLoadPerGpu.v;
+  const cum = []; let acc = 0;
+  for (const l of loads) { acc += l; cum.push(acc); }
+  const pickSrc = () => { const r = rnd() * acc; for (let i = 0; i < cum.length; i++) if (r < cum[i]) return i; return NGPU - 1; };
+  const t = [];
+  for (let i = 0; i < P; i++) {
+    const s = pickSrc();
+    let d = Math.floor(rnd() * NGPU);
+    if (d === s) d = (d + 1 + Math.floor(rnd() * (NGPU - 1))) % NGPU;
+    t.push({ s, d, phase: rnd(), dir: i % 2 === 0 ? 1 : -1,
+             wob: (rnd() - 0.5) * 0.7, wob2: (rnd() - 0.5) * 0.7 });
+  }
+  return t;
+})();
+
+const dispatchCol = new THREE.Color(D.modulesById.moe.color).clone().multiplyScalar(1.25);
+const combineCol  = new THREE.Color(D.modulesById.moe.color).clone().lerp(new THREE.Color(0x7b7fd0), 0.45);
+
+function emitMoE(seg, t) {
+  const prog = (t - seg.t0) / seg.dur;
+  const cycles = ILL.moeFlowCycles.v;
+  for (let i = 0; i < moeTable.length; i++) {
+    const e = moeTable[i];
+    let u = (prog * cycles + e.phase) % 1;
+    const from = e.dir > 0 ? gpus[e.s].corePos : gpus[e.d].corePos;
+    const to   = e.dir > 0 ? gpus[e.d].corePos : gpus[e.s].corePos;
+    _k.set((from.x + to.x) / 2 + e.wob, FAB_Y - 0.55, (from.z + to.z) / 2 + e.wob2);
+    bez(from, _k, to, u, _p);
+    const fade = Math.sin(u * Math.PI);
+    put(_p.x, _p.y, _p.z, 0.55 + fade * 0.75, e.dir > 0 ? dispatchCol : combineCol);
+  }
+}
+
+// --- index key 从 HBM 流向计算板（GPU 内部） --------------------------------
+const idxTable = (() => {
+  const rnd = prng(99221);
+  const K = ILL.indexKeyParticlesPerGpu.v;
+  const t = [];
+  for (let g = 0; g < NGPU; g++) {
+    const arr = [];
+    for (let i = 0; i < K; i++) {
+      arr.push({ phase: rnd(), ox: (rnd() - 0.5) * MEM_W * 0.9, oz: (rnd() - 0.5) * MEM_D * 0.9 });
+    }
+    t.push(arr);
+  }
+  return t;
+})();
+const idxCol = new THREE.Color(D.modulesById.indexer_dsa.color).clone().multiplyScalar(1.3);
+
+function emitIndexKey(seg, t) {
+  const prog = (t - seg.t0) / seg.dur;
+  for (let g = 0; g < NGPU; g++) {
+    const gp = gpus[g];
+    for (const e of idxTable[g]) {
+      const u = (prog * 3 + e.phase) % 1;
+      // 从 index key 那一段显存出发，收拢到顶上的计算板
+      const x = lerp(gp.indexBandPos.x + e.ox, gp.corePos.x, u);
+      const z = lerp(gp.pos.z + e.oz, gp.pos.z, u);
+      const y = lerp(gp.indexBandPos.y, CORE_Y - 0.05, u);
+      put(x, y, z, 0.5 + Math.sin(u * Math.PI) * 0.5, idxCol);
+    }
+  }
+}
+
+// --- Engram：Grace → GPU 的 RDMA，含 L14 的停泊空档 -------------------------
+const engTable = (() => {
+  const rnd = prng(7733);
+  const K = ILL.engramParticlesPerGpu.v;
+  const out = [];
+  for (const L of D.engramLayers) {
+    const waitSeg = SCH.segments.find(s => s.module === 'engram' && s.phase === 'wait' && s.layer === L);
+    const per = [];
+    for (let g = 0; g < NGPU; g++) {
+      const arr = [];
+      for (let i = 0; i < K; i++) {
+        const ang = (i / K) * Math.PI * 2 + rnd() * 0.4;
+        const r = 0.95 + rnd() * 0.42;
+        arr.push({
+          stagger: rnd(),
+          park: new THREE.Vector3(gpus[g].pos.x + Math.cos(ang) * r,
+                                  FAB_Y + 0.42 + (rnd() - 0.5) * 0.35,
+                                  gpus[g].pos.z + Math.sin(ang) * r),
+          bob: rnd() * Math.PI * 2
+        });
+      }
+      per.push(arr);
+    }
+    out.push({ layer: L, waitT: waitSeg ? waitSeg.t0 : null, per });
+  }
+  return out;
+})();
+
+const engCol     = new THREE.Color(D.modulesById.engram.color);
+const engFlyCol  = engCol.clone().multiplyScalar(1.3);
+const engParkCol = engCol.clone().multiplyScalar(0.55);
+
+function emitEngram(t, wall) {
+  const issueEnd = SCH.engramIssueMs;
+  const consume = ILL.engramConsumeVisualMs.v;
+  for (const batch of engTable) {
+    if (batch.waitT === null) continue;
+    const absorbEnd = batch.waitT + consume;
+    if (t > absorbEnd) continue;
+    for (let g = 0; g < NGPU; g++) {
+      const gp = gpus[g], exit = graceExit[g];
+      for (const e of batch.per[g]) {
+        if (t < issueEnd) {
+          // 发起 + 飞行
+          const u = clamp((t / issueEnd) * 1.45 - 0.45 * e.stagger, 0, 1);
+          _k.set(lerp(exit.x, e.park.x, 0.5), lerp(exit.y, e.park.y, 0.5) - 0.8,
+                 lerp(exit.z, e.park.z, 0.5));
+          bez(exit, _k, e.park, u, _p);
+          put(_p.x, _p.y, _p.z, 0.55 + Math.sin(u * Math.PI) * 0.55, engFlyCol);
+        } else if (t < batch.waitT) {
+          // 停泊：数据早已到位，等它所属的层
+          const bob = Math.sin(wall * 0.0014 + e.bob) * 0.09;
+          put(e.park.x, e.park.y + bob, e.park.z, 0.52, engParkCol);
+        } else {
+          // 被消费
+          const u = clamp((t - batch.waitT) / consume, 0, 1);
+          _p.lerpVectors(e.park, gp.corePos, u * u);
+          put(_p.x, _p.y, _p.z, 0.75 * (1 - u * 0.55), engFlyCol);
+        }
+      }
+    }
+  }
+}
+
+// ===========================================================================
+// 时间轴查询
+// ===========================================================================
+const segs = SCH.segments;
+function segAt(t) {
+  let lo = 0, hi = segs.length - 1, best = 0;
+  while (lo <= hi) {
+    const mid = (lo + hi) >> 1;
+    if (segs[mid].t0 <= t) { best = mid; lo = mid + 1; } else hi = mid - 1;
+  }
+  return segs[best];
+}
+function layerAt(t) {
+  const L = SCH.layerSpans;
+  if (t < L[0].t0) return -1;
+  if (t >= L[L.length - 1].t1) return D.step.layerCount.v;
+  let lo = 0, hi = L.length - 1, best = 0;
+  while (lo <= hi) {
+    const mid = (lo + hi) >> 1;
+    if (L[mid].t0 <= t) { best = mid; lo = mid + 1; } else hi = mid - 1;
+  }
+  return best;
+}
+
+// ===========================================================================
+// 播放状态
+// ===========================================================================
+let simT = 0;
+let playing = true;
+let speed = ILL.defaultSpeed.v;
+const [SP_MIN, SP_MAX] = ILL.speedRange.v;
+
+// Engram 的 wait 段只有 5.5 µs，而默认 0.001× 下一帧就要推进约 16 µs——
+// 正常播放会整段跳过去，而「wait 只要 4–7 µs」恰恰是这次 profiling 最值得看的
+// 一个发现。所以播放头经过 wait 时在上面停一会儿。
+// 停的是播放，不是被测时间：HUD 上的 µs 读数仍然是真实时刻。
+const WAIT_SEGS = segs.filter(s => s.module === 'engram' && s.phase === 'wait');
+const HOLD_MS = ILL.waitHoldWallMs.v;
+let holdUntil = 0, holdResumeT = null;
+
+function waitCrossed(from, to) {
+  for (const w of WAIT_SEGS) if (w.t1 > from && w.t0 < to) return w;
+  return null;
+}
+function advance(dt, now) {
+  if (holdUntil > now) return;                       // 正停在 wait 上
+  if (holdResumeT !== null) { simT = holdResumeT; holdResumeT = null; }
+  const want = simT + dt * speed;
+  const w = waitCrossed(simT, want);
+  if (w) {
+    simT = w.t0 + w.dur * 0.5;
+    holdUntil = now + HOLD_MS;
+    holdResumeT = Math.max(want, w.t1);
+  } else {
+    simT = want;
+  }
+}
+function clearHold() { holdUntil = 0; holdResumeT = null; }
+
+function speedToSlider(s) { return Math.log(s / SP_MIN) / Math.log(SP_MAX / SP_MIN); }
+function sliderToSpeed(v) { return SP_MIN * Math.pow(SP_MAX / SP_MIN, v); }
+function fmtSpeed(s) {
+  if (s >= 0.1) return s.toFixed(2) + '×';
+  if (s >= 0.01) return s.toFixed(3) + '×';
+  return s.toFixed(4) + '×';
+}
+
+$('#speed').value = String(speedToSlider(speed));
+$('#speedVal').textContent = fmtSpeed(speed);
+$('#speed').addEventListener('input', (e) => {
+  speed = sliderToSpeed(parseFloat(e.target.value));
+  $('#speedVal').textContent = fmtSpeed(speed);
+});
+
+function setPlaying(p) {
+  playing = p;
+  const b = $('#btnPlay');
+  b.textContent = p ? '⏸ 暂停' : '▶ 播放';
+  b.classList.toggle('on', p);
+}
+$('#btnPlay').addEventListener('click', () => setPlaying(!playing));
+$('#btnReset').addEventListener('click', () => { simT = 0; clearHold(); });
+$('#btnPrev').addEventListener('click', () => stepLayer(-1));
+$('#btnNext').addEventListener('click', () => stepLayer(1));
+
+function stepLayer(dir) {
+  const L = SCH.layerSpans;
+  const cur = layerAt(simT);
+  if (dir < 0) {
+    if (cur < 0) simT = 0;                                   // 已在层开始之前
+    else if (cur >= L.length) simT = L[L.length - 1].t0;     // 从收尾阶段退回最后一层
+    else if (simT - L[cur].t0 > L[cur].dur * 0.08) simT = L[cur].t0;  // 先回到本层开头
+    else if (cur === 0) simT = 0;                            // 再往前就是层开始之前
+    else simT = L[cur - 1].t0;
+  } else {
+    if (cur < 0) simT = L[0].t0;
+    else if (cur >= L.length - 1) simT = L[L.length - 1].t1; // 最后一层之后是收尾阶段
+    else simT = L[cur + 1].t0;
+  }
+  clearHold();
+  setPlaying(false);
+}
+
+window.addEventListener('keydown', (e) => {
+  if (e.target.tagName === 'INPUT') return;
+  if (e.code === 'Space') { e.preventDefault(); setPlaying(!playing); }
+  else if (e.code === 'ArrowLeft') { e.preventDefault(); stepLayer(-1); }
+  else if (e.code === 'ArrowRight') { e.preventDefault(); stepLayer(1); }
+});
+
+// 拖动条
+const scrub = $('#scrub');
+let scrubbing = false;
+scrub.addEventListener('pointerdown', () => { scrubbing = true; setPlaying(false); });
+window.addEventListener('pointerup', () => { scrubbing = false; });
+scrub.addEventListener('input', () => { simT = parseFloat(scrub.value) * TOTAL; clearHold(); });
+
+// ===========================================================================
+// Gantt 条
+// ===========================================================================
+const gantt = $('#gantt');
+const gctx = gantt.getContext('2d');
+let ganttBase = document.createElement('canvas');
+let GW_px = 0, GH_px = 0, GPAD = 8;
+
+function buildGantt() {
+  const dpr = Math.min(window.devicePixelRatio, 2);
+  const rect = gantt.getBoundingClientRect();
+  GW_px = Math.max(320, Math.round(rect.width));
+  GH_px = 74;
+  gantt.width = Math.round(GW_px * dpr);
+  gantt.height = Math.round(GH_px * dpr);
+  gctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+
+  ganttBase.width = gantt.width; ganttBase.height = gantt.height;
+  const c = ganttBase.getContext('2d');
+  c.setTransform(dpr, 0, 0, dpr, 0, 0);
+  c.clearRect(0, 0, GW_px, GH_px);
+
+  const x0 = GPAD, x1 = GW_px - GPAD, w = x1 - x0;
+  const X = (t) => x0 + t / TOTAL * w;
+
+  const barY = 16, barH = 26;
+
+  // 模块色块
+  for (const s of segs) {
+    const a = X(s.t0), b = X(s.t1);
+    c.fillStyle = D.modulesById[s.module].color;
+    c.globalAlpha = 0.9;
+    c.fillRect(a, barY, Math.max(0.6, b - a), barH);
+  }
+  c.globalAlpha = 1;
+
+  // 层分隔线
+  c.strokeStyle = 'rgba(7,9,13,0.85)';
+  c.lineWidth = 1;
+  for (const L of SCH.layerSpans) {
+    c.beginPath(); c.moveTo(Math.round(X(L.t0)) + 0.5, barY);
+    c.lineTo(Math.round(X(L.t0)) + 0.5, barY + barH); c.stroke();
+  }
+
+  // 顶部：层号刻度
+  c.font = '9px ui-monospace, Menlo, monospace';
+  c.textBaseline = 'alphabetic';
+  c.fillStyle = 'rgba(255,255,255,0.28)';
+  for (const L of SCH.layerSpans) {
+    if (L.layer % 4 !== 0) continue;
+    c.textAlign = 'left';
+    c.fillText('L' + L.layer, X(L.t0) + 2, barY - 4);
+  }
+
+  // 底部：索引器层 / 建池层 / Engram 层标记
+  const mkY = barY + barH + 4;
+  for (const L of SCH.layerSpans) {
+    const li = D.layers[L.layer];
+    const cx = (X(L.t0) + X(L.t1)) / 2;
+    if (li.isPoolBuilder) {
+      c.fillStyle = D.modulesById.indexer_dsa.color;
+      c.beginPath();
+      c.moveTo(cx, mkY); c.lineTo(cx + 9, mkY + 4.5); c.lineTo(cx, mkY + 9);
+      c.closePath(); c.fill();
+      c.fillRect(cx - 0.75, mkY, 1.5, 12);
+      c.font = '9px ui-monospace, Menlo, monospace';
+      c.textAlign = 'left'; c.fillStyle = D.modulesById.indexer_dsa.color;
+      c.fillText(`L${D.candidatePool.builderLayer.v} 建 ${D.candidatePool.poolTokens.v / 1024}K 候选池`,
+                 cx + 12, mkY + 9);
+    } else if (li.hasIndexer) {
+      c.fillStyle = D.modulesById.indexer_dsa.color;
+      c.beginPath();
+      c.moveTo(cx - 3.2, mkY + 7); c.lineTo(cx + 3.2, mkY + 7); c.lineTo(cx, mkY + 1);
+      c.closePath(); c.fill();
+    }
+    if (li.hasEngram) {
+      c.fillStyle = D.modulesById.engram.color;
+      c.beginPath(); c.arc(cx, mkY + 4, 2.6, 0, Math.PI * 2); c.fill();
+    }
+  }
+
+  // 图例行
+  c.font = '9px ui-monospace, Menlo, monospace';
+  c.textAlign = 'right';
+  c.fillStyle = 'rgba(255,255,255,0.30)';
+  c.fillText(`0 → ${TOTAL} ms · ${D.step.layerCount.v} 层`, x1, GH_px - 2);
+  c.textAlign = 'left';
+  c.fillStyle = D.modulesById.indexer_dsa.color;
+  const idxTxt = `▲ 索引器层（${D.indexerLayers.length}/${D.step.layerCount.v}）`;
+  c.fillText(idxTxt, x0, GH_px - 2);
+  c.fillStyle = D.modulesById.engram.color;
+  c.fillText(`● Engram 层（${D.engramLayers.map(l => 'L' + l).join(' / ')}）`,
+             x0 + c.measureText(idxTxt).width + 16, GH_px - 2);
+}
+
+function drawGantt() {
+  gctx.setTransform(1, 0, 0, 1, 0, 0);
+  gctx.clearRect(0, 0, gantt.width, gantt.height);
+  gctx.drawImage(ganttBase, 0, 0);
+  const dpr = Math.min(window.devicePixelRatio, 2);
+  gctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+
+  const x0 = GPAD, x1 = GW_px - GPAD;
+  const x = x0 + simT / TOTAL * (x1 - x0);
+  gctx.strokeStyle = '#ffffff';
+  gctx.lineWidth = 1.25;
+  gctx.beginPath(); gctx.moveTo(x, 10); gctx.lineTo(x, 56); gctx.stroke();
+  gctx.fillStyle = '#ffffff';
+  gctx.beginPath(); gctx.moveTo(x - 3.5, 10); gctx.lineTo(x + 3.5, 10); gctx.lineTo(x, 15); gctx.closePath(); gctx.fill();
+}
+
+function ganttSeek(ev) {
+  const r = gantt.getBoundingClientRect();
+  const u = clamp((ev.clientX - r.left - GPAD) / (r.width - GPAD * 2), 0, 1);
+  simT = u * TOTAL;
+  clearHold();
+}
+let ganttDown = false;
+gantt.addEventListener('pointerdown', (e) => { ganttDown = true; setPlaying(false); ganttSeek(e); gantt.setPointerCapture(e.pointerId); });
+gantt.addEventListener('pointermove', (e) => { if (ganttDown) ganttSeek(e); });
+gantt.addEventListener('pointerup', (e) => { ganttDown = false; try { gantt.releasePointerCapture(e.pointerId); } catch (_) {} });
+
+// ===========================================================================
+// HUD
+// ===========================================================================
+const annotEls = {};
+function renderAnnots(list) {
+  const key = list.map(a => a.k).join('|');
+  if (annotEls.key === key) return;
+  annotEls.key = key;
+  $('#annots').innerHTML = list.map(a =>
+    `<div class="annot" style="color:${a.color}"><span>${a.text}</span></div>`).join('');
+}
+
+let lastHud = '';
+function updateHUD(holding) {
+  const seg = segAt(simT);
+  const L = layerAt(simT);
+  const mod = D.modulesById[seg.module];
+
+  $('#clock').innerHTML =
+    `${num(simT * 1000, 1)} <span class="tot">/ ${num(TOTAL * 1000, 1)} µs</span>`;
+
+  // 层信息
+  let layerHtml;
+  if (L < 0) {
+    layerHtml = `<span id="layerBig">—</span><span class="badge" style="color:${D.modulesById.engram.color}">层开始前</span>`;
+  } else if (L >= D.step.layerCount.v) {
+    layerHtml = `<span id="layerBig">—</span><span class="badge" style="color:${D.modulesById.sampling_speculation_mtp.color}">40 层已跑完</span>`;
+  } else {
+    const li = D.layers[L];
+    const badges = [];
+    if (li.isPoolBuilder) badges.push([D.modulesById.indexer_dsa.color, '建 16K 候选池']);
+    else if (li.hasIndexer && li.usesPool) badges.push([D.modulesById.indexer_dsa.color, '用候选池']);
+    else if (li.hasIndexer) badges.push([D.modulesById.indexer_dsa.color, '索引器']);
+    if (li.hasEngram) badges.push([D.modulesById.engram.color, 'Engram']);
+    badges.push(['#6b7f99', `KV 压缩 ${li.kvCompression === 0 ? '无' : li.kvCompression + '×'}`]);
+    layerHtml = `<span id="layerBig">L${L}</span>` +
+      `<span style="color:var(--fg-faint);font-family:var(--mono);font-size:11px">/ ${D.step.layerCount.v}</span>` +
+      badges.map(b => `<span class="badge" style="color:${b[0]}">${b[1]}</span>`).join('');
+  }
+
+  const sig = seg.t0 + '|' + L + '|' + (holding ? 'h' : '');
+  if (sig !== lastHud) {
+    lastHud = sig;
+    $('#layerLine').innerHTML = layerHtml;
+    $('#moduleChip').style.background = mod.color;
+    $('#moduleName').textContent = mod.zh;
+    $('#modulePct').innerHTML = `${mod.ms} ms · ${mod.pct}%${pv('measured')}`;
+
+    // 说明：优先用阶段专属文案，其次层专属，最后模块通用
+    const phaseKey = seg.module + ':' + seg.phase;
+    let text = C.phaseExplain[phaseKey] || C.moduleExplain[seg.module];
+    if (seg.module === 'indexer_dsa' && L >= 0 && L < D.step.layerCount.v) {
+      const li = D.layers[L];
+      if (li.isPoolBuilder) text = C.layerExplain.poolBuilder;
+      else if (li.usesPool) text = C.layerExplain.poolConsumer;
+      else text = C.layerExplain.fullScan;
+      text += `　扫描 ${num(li.scanPositions)} 个位置，保留 top-${D.dsa.topK.v}。`;
+    }
+    $('#explain').innerHTML = text;
+
+    // 注记
+    const an = [];
+    if (seg.module === 'moe') an.push({ k: 'moe', color: D.modulesById.moe.color, text: C.annotations.moe });
+    if (seg.module === 'engram') an.push({ k: 'eng', color: D.modulesById.engram.color, text: C.annotations.engram });
+    if (L === D.candidatePool.builderLayer.v || (L >= 0 && L < D.step.layerCount.v && D.layers[L].usesPool))
+      an.push({ k: 'pool', color: D.modulesById.indexer_dsa.color, text: C.annotations.pool });
+    if (seg.module === 'engram' && seg.phase === 'wait' && seg.layer === 14)
+      an.push({ k: 'slack', color: D.modulesById.engram.color,
+                text: `这批数据在 ${D.engramSlack.issuedAtMs.v} ms 就发出了，到这里才用上${pv('derived')}` });
+    if (holding)
+      an.push({ k: 'hold', color: '#9fb0d8',
+                text: `这一段只有 ${seg.dur * 1000 < 10 ? (seg.dur * 1000).toFixed(1) : num(seg.dur * 1000)} µs，` +
+                      `比当前速度下的一帧还短，播放已暂留${pv('illustrative')}` });
+    renderAnnots(an);
+  }
+  return { seg, L, mod };
+}
+
+// ===========================================================================
+// GPU 侧栏
+// ===========================================================================
+let selectedGpu = null;
+
+function renderGpuPanel(g) {
+  const gp = gpus[g];
+  const load = ILL.expertLoadPerGpu.v[g];
+  const rows = ILL.perExpertRows.v[g];
+  const mx = Math.max.apply(null, rows);
+  const loads = ILL.expertLoadPerGpu.v;
+  const loadMax = Math.max.apply(null, loads);
+  const moeC = D.modulesById.moe.color;
+
+  const memStack = D.memorySplit.map(s =>
+    `<div style="width:${(s.gb / D.system.hbmPerGpuGB.v * 100).toFixed(2)}%;background:${s.color};` +
+    `${s.id === 'free' ? 'opacity:.35' : ''}"></div>`).join('');
+  const memKey = D.memorySplit.map(s =>
+    `<span><i style="background:${s.color}"></i>${s.zh} <b>${s.gb}</b> GB${pv(s.p)}</span>`).join('');
+
+  const loadRows = loads.map((l, i) =>
+    `<div class="loadrow ${i === g ? 'sel' : ''}">
+       <span class="nm">GPU ${i}</span>
+       <span class="tr"><div style="width:${(l / loadMax * 100).toFixed(1)}%"></div></span>
+       <span class="nv">${l.toFixed(2)}×</span>
+     </div>`).join('');
+
+  const expertCells = rows.map((r, e) =>
+    `<div title="专家 ${e}：${num(r)} 行" style="background:${moeC};opacity:${(0.18 + 0.82 * r / mx).toFixed(3)}"></div>`).join('');
+
+  $('#gpuPanel').innerHTML = `
+    <div class="block">
+      <div class="sect-title">GPU ${g} · 节点 ${gp.node === 0 ? 'A' : 'B'}</div>
+      ${row('HBM 容量', num(D.system.hbmPerGpuGB.v), 'GB', 'measured')}
+      ${row('HBM 带宽', '~' + D.system.hbmBandwidthTBs.v, 'TB/s', 'measured')}
+      <div class="stack">${memStack}</div>
+      <div class="stack-key">${memKey}</div>
+    </div>
+
+    <div class="block">
+      <div class="sect-title">本卡这一步的行数</div>
+      ${row('请求数', num(D.workload.requestsPerGpu.v), '', 'measured')}
+      ${row('查询行（320 × q8）', num(D.workload.rowsPerGpuPerStep.v), '', 'measured')}
+      ${row('MoE 路由行（×top-6）', num(D.moe.routedRowsPerGpu.v), '', 'measured')}
+      ${row('本卡专家数', num(D.moe.expertsPerGpu.v), '', 'measured')}
+      ${row('每专家平均行数', num(D.moe.rowsPerExpertMean.v), '', 'measured')}
+      ${row('单专家 GEMM', `[${num(D.moe.gemmM.v)}, ${num(D.moe.gemmK.v)}] × [${num(D.moe.gemmK.v)}, ${num(D.moe.gemmN.v)}]`, '', 'measured')}
+      ${row('精度', `${D.moe.actDtype.v} 激活 × ${D.moe.weightDtype.v} 权重`, '', 'measured')}
+    </div>
+
+    <div class="block">
+      <div class="sect-title">专家负载不均衡</div>
+      ${row('max / mean', D.moe.imbalanceMaxOverMean.v.toFixed(2) + '×', '', 'measured')}
+      ${row('理想重排后（无副本）', D.moe.imbalanceIdealMaxOverMean.v.toFixed(2) + '×', '', 'measured')}
+      <div style="margin-top:9px">${loadRows}</div>
+      <div style="color:var(--fg-faint);font-size:10.5px;margin-top:7px;line-height:1.5">
+        ${pv('illustrative')} 只有 max/mean = ${D.moe.imbalanceMaxOverMean.v}× 是实测的。
+        具体哪张卡最热、其余七张怎么分布，是为了把不均衡画出来而选的示意分布（均值已归一到 1.00×）。
+      </div>
+    </div>
+
+    <div class="block">
+      <div class="sect-title">本卡 48 个专家的行数${pv('illustrative')}</div>
+      <div id="expertGrid">${expertCells}</div>
+      <div style="color:var(--fg-faint);font-size:10.5px;margin-top:7px">
+        固定种子生成的偏斜分布，均值与上一节自洽；不是实测直方图。
+      </div>
+    </div>
+
+    <div class="block">
+      <div class="sect-title">all-to-all</div>
+      ${row('每 token 平均目标卡数', D.moe.a2aDistinctDestsPerToken.v.toFixed(2), '', 'measured')}
+      ${row('每卡每层 dispatch 出流量', D.moe.a2aOutMBPerGpuPerLayer.v, 'MB', 'measured')}
+    </div>
+
+    <div class="block">
+      <div class="sect-title">本卡每步的两条外部数据流</div>
+      ${row('index key 读取', D.dsa.readGBPerGpuPerStep.v, 'GB', 'measured')}
+      ${row('index key 持续带宽', num(D.dsa.sustainedGBs.v), 'GB/s', 'measured')}
+      ${row('Engram RDMA 读次数', num(D.engram.readsPerGpuPerStep.v), '', 'measured')}
+      ${row('Engram 读回量', '~' + D.engram.bytesPerGpuPerStepMB.v, 'MB', 'measured')}
+    </div>
+  `;
+  $('#gpuPanel').hidden = false;
+}
+
+const raycaster = new THREE.Raycaster();
+const ndc = new THREE.Vector2();
+let downXY = null;
+renderer.domElement.addEventListener('pointerdown', (e) => { downXY = [e.clientX, e.clientY]; });
+renderer.domElement.addEventListener('pointerup', (e) => {
+  if (!downXY) return;
+  const moved = Math.hypot(e.clientX - downXY[0], e.clientY - downXY[1]);
+  downXY = null;
+  if (moved > 5) return;                       // 这是一次拖动旋转，不是点击
+  ndc.x = (e.clientX / window.innerWidth) * 2 - 1;
+  ndc.y = -(e.clientY / window.innerHeight) * 2 + 1;
+  raycaster.setFromCamera(ndc, camera);
+  const hit = raycaster.intersectObjects(pickTargets, false)[0];
+  if (hit) {
+    selectedGpu = hit.object.userData.gpu;
+    renderGpuPanel(selectedGpu);
+  } else {
+    selectedGpu = null;
+    $('#gpuPanel').hidden = true;
+  }
+});
+
+// ===========================================================================
+// 相机预设
+// ===========================================================================
+const PRESETS = {
+  system: { pos: [0, 13.5, 27], tgt: [0, -1.2, 0] },
+  gpu:    { pos: [-7.5 + 3.4, 3.6, 6.4], tgt: [-7.5, -0.2, -SPZ / 2] },
+  grace:  { pos: [1.5, -2.2, 19], tgt: [0, -3.6, 0] }
+};
+let camAnim = null;
+document.querySelectorAll('[data-cam]').forEach(b => {
+  b.addEventListener('click', () => {
+    const p = PRESETS[b.dataset.cam];
+    camAnim = {
+      t: 0,
+      p0: camera.position.clone(), p1: new THREE.Vector3().fromArray(p.pos),
+      t0: controls.target.clone(), t1: new THREE.Vector3().fromArray(p.tgt)
+    };
+    document.querySelectorAll('[data-cam]').forEach(x => x.classList.remove('on'));
+    b.classList.add('on');
+  });
+});
+document.querySelector('[data-cam="system"]').classList.add('on');
+
+// ===========================================================================
+// 主循环
+// ===========================================================================
+const dimExpert = new THREE.Color(0x202832);
+const EDGE_BASE = new THREE.Color(0x3d4c5e);
+let lastWall = performance.now();
+
+function frame(now) {
+  requestAnimationFrame(frame);
+  const dt = Math.min(now - lastWall, 100);
+  lastWall = now;
+
+  if (playing && !scrubbing && !ganttDown) {
+    advance(dt, now);
+    if (simT >= TOTAL) { simT -= TOTAL; clearHold(); }
+  }
+  simT = clamp(simT, 0, TOTAL - 1e-9);
+  const holding = holdUntil > now;
+
+  const { seg, L, mod } = updateHUD(holding);
+  if (document.activeElement !== scrub) scrub.value = String(simT / TOTAL);
+
+  // --- GPU 外观 ---
+  const modCol = new THREE.Color(mod.color);
+  const pulse = 0.72 + 0.28 * Math.sin(now * 0.004);
+  const moeActive = seg.module === 'moe';
+  const maxLoad = D.moe.imbalanceMaxOverMean.v;   // 1.96，实测的 max/mean
+  for (const gp of gpus) {
+    const heat = gp.load / maxLoad;               // 0.29 .. 1.00
+    let inten = 0.55 * pulse;
+    if (moeActive) inten = (0.18 + 0.9 * heat) * pulse;   // 负载重的卡更亮
+    gp.core.material.emissive.copy(modCol);
+    gp.core.material.emissiveIntensity = inten * (moeActive ? 0.5 : 1.25);
+    // MoE 阶段把外框也按负载染成金色，让「这张卡更热」一眼能看出来
+    if (moeActive) {
+      gp.edgeMat.color.copy(EDGE_BASE).lerp(moeColor, 0.25 + 0.75 * heat);
+      gp.edgeMat.opacity = 0.55 + 0.45 * heat;
+    } else {
+      gp.edgeMat.color.copy(EDGE_BASE);
+      gp.edgeMat.opacity = 0.85;
+    }
+    // index key 条在索引器层高亮
+    const ik = gp.mem.indexkey.mesh.material;
+    ik.emissiveIntensity = seg.module === 'indexer_dsa' ? 0.55 * pulse : 0.12;
+  }
+
+  // --- 384 个专家 ---
+  {
+    const active = seg.module === 'moe';
+    for (let i = 0; i < totalExperts; i++) {
+      if (active) {
+        const g = Math.floor(i / D.moe.expertsPerGpu.v);
+        const heat = gpus[g].load / D.moe.imbalanceMaxOverMean.v;   // 0.29 .. 1.00
+        const k = (0.16 + 0.84 * expertIntensity[i]) * (0.20 + 1.15 * heat) * pulse;
+        _c.copy(moeColor).multiplyScalar(clamp(k, 0.05, 1.45));
+      } else {
+        _c.copy(dimExpert);
+      }
+      expertMesh.setColorAt(i, _c);
+    }
+    expertMesh.instanceColor.needsUpdate = true;
+  }
+
+  // --- fabric / C2C 发光 ---
+  fabric.material.opacity = seg.module === 'moe' ? 0.30 + 0.42 * pulse : 0.14;
+  const engActive = simT < SCH.engramIssueMs;
+  c2cMat.opacity = engActive ? 0.18 + 0.42 * pulse : 0.11;
+
+  // --- 粒子 ---
+  pn = 0;
+  if (seg.module === 'moe') emitMoE(seg, simT);
+  if (seg.module === 'indexer_dsa') emitIndexKey(seg, simT);
+  emitEngram(simT, now);
+  pMesh.count = pn;
+  pMesh.instanceMatrix.needsUpdate = true;
+  if (pMesh.instanceColor) pMesh.instanceColor.needsUpdate = true;
+
+  // --- 相机 ---
+  if (camAnim) {
+    camAnim.t = Math.min(1, camAnim.t + dt / 750);
+    const u = camAnim.t < 0.5 ? 2 * camAnim.t * camAnim.t : 1 - Math.pow(-2 * camAnim.t + 2, 2) / 2;
+    camera.position.lerpVectors(camAnim.p0, camAnim.p1, u);
+    controls.target.lerpVectors(camAnim.t0, camAnim.t1, u);
+    if (camAnim.t >= 1) camAnim = null;
+  }
+
+  controls.update();
+  drawGantt();
+  renderer.render(scene, camera);
+  labelRenderer.render(scene, camera);
+}
+
+// ===========================================================================
+// 尺寸
+// ===========================================================================
+function onResize() {
+  camera.aspect = window.innerWidth / window.innerHeight;
+  camera.updateProjectionMatrix();
+  renderer.setSize(window.innerWidth, window.innerHeight);
+  labelRenderer.setSize(window.innerWidth, window.innerHeight);
+  buildGantt();
+}
+window.addEventListener('resize', onResize);
+
+buildGantt();
+setPlaying(true);
+requestAnimationFrame(frame);
+</script>
+</body>
+</html>
